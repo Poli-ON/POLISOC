@@ -1,4 +1,4 @@
-# POLISOC: A Voltage-Deformation Hybrid SOC Estimation Algorithms Platform for Lithium-Ion Batteries
+# POLISOC: A Voltage-Deformation SOC Estimation Algorithms Platform for Lithium-Ion Batteries
 
 **POLISOC** is an open-source algorithms platform implemented in MATLAB for hybrid State of Charge (SOC) estimation and empirical modelling of lithium-ion batteries.
 
