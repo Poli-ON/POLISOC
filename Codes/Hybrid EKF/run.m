@@ -6,7 +6,7 @@
 %   Hybrid)
 %   param: Set of cell parameters
 %   Meas: Structure containing measurement data of the test to estimate SOC
-%   BatType: Type of battery (0: LCO, 1: LFP, 2: NMC)
+%   BatType: Type of battery (0: LCO, 1: LFP, 2: NMC, 3 NMC Michigan dataset)
 %
 % Output:
 %   sochat: SOC estimation
@@ -23,46 +23,61 @@ switch BatType
         switch ObType
             case 1
                 SigmaX0 = diag([0.0025 1e-8]); % uncertainty of initial state (SOC, deformation hysteresis)
-                SigmaV  = 1e-1; % Output equation: Uncertainty of deformation sensor
-                SigmaW  = 1e-1; % State equation: Uncertainty of current sensor
+                SigmaV  = 1e-3; % Output equation: Uncertainty of deformation sensor
+                SigmaW  = 1e-2; % State equation: Uncertainty of current sensor
             case 2
-                SigmaX0 = diag([0.001 1e-8 0.0025]); % uncertainty of initial state (current resistor, voltage hysteresis, SOC)
+                SigmaX0 = diag([0.001 1e-8 0.0025]); % uncertainty of initial state (current resistor, hysteresis, SOC)
                 SigmaV  = 1e-1; % Output equation: Uncertainty of voltage sensor
-                SigmaW  = 1e-1; % State equation: uncertainty of current sensor
+                SigmaW  = 1e-2; % State equation: uncertainty of current sensor
             case 3
-                SigmaX0 = diag([0.001 1e-8 0.0025 1e-8]); % uncertainty of initial state (current resistor, voltage hysteresis, SOC, deformation hysteresis)
-                SigmaV  = diag([1e-1; 1e-1]); %  Output equation: Uncertainty of deformation and voltage sensor
-                SigmaW  = 1e-1; % State equation: Uncertainty of current sensor
+                SigmaX0 = diag([0.001 1e-8 0.0025 1e-8]); % uncertainty of initial state (current resistor, hysteresis, SOC, deformation hysteresis)
+                SigmaV  = diag([1e-3; 1e-1]); %  Output equation: Uncertainty of deformation and voltage sensor
+                SigmaW  = 1e-2; % State equation: Uncertainty of current sensor
         end
     case 1 %LFP
         switch ObType
             case 1
-                SigmaX0 = diag(0.0025); % uncertainty of initial state (SOC, deformation hysteresis)
-                SigmaV  = 1e-1; % Output equation: Uncertainty of deformation sensor
-                SigmaW  = 1e-1; % State equation: Uncertainty of current sensor
+                SigmaX0 = diag([0.0025 1e-8]); % uncertainty of initial state (SOC, deformation hysteresis)
+                SigmaV  = 1e-3; % Output equation: Uncertainty of deformation sensor
+                SigmaW  = 1e-2; % State equation: Uncertainty of current sensor
             case 2
-                SigmaX0 = diag([0.001 1e-8 0.0025]); % uncertainty of initial state (current resistor, voltage hysteresis, SOC)
-                SigmaV  = 1e-1; % Output equation: Uncertainty of voltage sensor
-                SigmaW  = 1e-1; % State equation: uncertainty of current sensor
+                SigmaX0 = diag([0.001 1e-8 0.0025]); % uncertainty of initial state (current resistor, hysteresis, SOC)
+                SigmaV  = 0.5e-2; % Output equation: Uncertainty of voltage sensor
+                SigmaW  = 1e-2; % State equation: uncertainty of current sensor
             case 3
-                SigmaX0 = diag([0.001 1e-8 0.0025 1e-8]); % uncertainty of initial state  (current resistor, voltage hysteresis, SOC, deformation hysteresis)
-                SigmaV  = diag([1e-1; 1e-1]); %  Output equation: Uncertainty of deformation and voltage sensor
-                SigmaW  = 1e-1; % State equation: Uncertainty of current sensor
+                SigmaX0 = diag([0.001 1e-8 0.0025 1e-8]); % uncertainty of initial state (current resistor, hysteresis, SOC, deformation hysteresis)
+                SigmaV  = diag([1e-3; 0.5e-2]); %  Output equation: Uncertainty of deformation and voltage sensor
+                SigmaW  = 1e-2; % State equation: Uncertainty of current sensor
         end
     case 2 %NMC
         switch ObType
             case 1
                 SigmaX0 = diag([0.0025 1e-8]); % uncertainty of initial state (SOC, deformation hysteresis)
-                SigmaV  = 1e-1; % Output equation: Uncertainty of deformation sensor
-                SigmaW  = 1e-1; % State equation: Uncertainty of current sensor
+                SigmaV  = 1e-3; % Output equation: Uncertainty of deformation sensor
+                SigmaW  = 1e-2; % State equation: Uncertainty of current sensor
             case 2
-                SigmaX0 = diag([0.001 1e-8 0.0025]); % uncertainty of initial state (current resistor, voltage hysteresis, SOC)
-                SigmaV  = 1e-1; % Output equation: Uncertainty of voltage sensor
-                SigmaW  = 1e-1; % State equation: uncertainty of current sensor
+                SigmaX0 = diag([0.001 1e-8 0.0025]); % uncertainty of initial state (current resistor, hysteresis, SOC)
+                SigmaV  = 1e-3; % Output equation: Uncertainty of voltage sensor
+                SigmaW  = 1e-2; % State equation: uncertainty of current sensor
             case 3
-                SigmaX0 = diag([0.001 1e-8 0.0025 1e-8]); % uncertainty of initial state  (current resistor, voltage hysteresis, SOC, deformation hysteresis)
-                SigmaV  = diag([1e-1; 1e-1]); %  Output equation: Uncertainty of deformation and voltage sensor
-                SigmaW  = 1e-1; % State equation: Uncertainty of current sensor
+                SigmaX0 = diag([0.001 1e-8 0.0025 1e-8]); % uncertainty of initial state (current resistor, hysteresis, SOC, deformation hysteresis)
+                SigmaV  = diag([1e-3; 1e-2]); %  Output equation: Uncertainty of deformation and voltage sensor
+                SigmaW  = 1e-2; % State equation: Uncertainty of current sensor
+        end
+    case 3 %NMC Michigan dataset
+        switch ObType
+            case 1
+                SigmaX0 = diag([0.0025 1e-8]); % uncertainty of initial state (SOC, deformation hysteresis)
+                SigmaV  = 1e-3; % Output equation: Uncertainty of deformation sensor
+                SigmaW  = 1e-2; % State equation: Uncertainty of current sensor
+            case 2
+                SigmaX0 = diag([0.001 1e-8 0.0025]); % uncertainty of initial state (current resistor, hysteresis, SOC)
+                SigmaV  = 1e-3; % Output equation: Uncertainty of voltage sensor
+                SigmaW  = 1e-2; % State equation: uncertainty of current sensor
+            case 3
+                SigmaX0 = diag([0.001 1e-8 0.0025 1e-8]); % uncertainty of initial state (current resistor, hysteresis, SOC, deformation hysteresis)
+                SigmaV  = diag([1e-3; 1e-3]); %  Output equation: Uncertainty of deformation and voltage sensor
+                SigmaW  = 1e-2; % State equation: Uncertainty of current sensor
         end
 end
 
