@@ -58,14 +58,11 @@ function [zk,zkbnd,yhat,Data] = iter_deformation(dk,ik,Tk,deltat,Data)
   SigmaX = Ahat*SigmaX*Ahat' + Bhat*SigmaW*Bhat';
   
   % Step 3: Output estimate
-  % Calculate amplitude of hysteresis envelope at present soc, and assign 
-  % the boundary envelope magnitude in case soc is outside the range [0 1]
-  if xhat(zkInd)>0.99
-      Mmk=param.Mm(end);
-  elseif xhat(zkInd)<0.01
-      Mmk=param.Mm(1);
+  if ~any(Mm) % To speed up don't use interp1 if mechanical hysteresis is not considered (Mm= [0 ... 0]).
+      Mmk=0;
   else
-  Mmk=interp1(param.SOC,param.Mm,xhat(zkInd)); % Evaluate the magnitude of the deformation hysteresis envelope at the present SOC
+      Mmk=interp1(param.SOC,Mm,min(max(xhat(zkInd),0),1)); % Calculate amplitude of deformation hysteresis envelope at present soc, and assign 
+  % the boundary envelope magnitude in case soc is outside the range [0 1]
   end
   yhat = DTHKfromSOC(xhat(zkInd),param,cyc) + Mmk*xhat(hmkInd);
   
@@ -81,6 +78,7 @@ function [zk,zkbnd,yhat,Data] = iter_deformation(dk,ik,Tk,deltat,Data)
   r = dk - yhat;    % error between measured deformation and model
   if r^2 > 100*SigmaY, L(:)=0.0; end 
   xhat = xhat + L*r;
+  xhat(hmkInd) = min(1,max(-1,xhat(hmkInd))); % Help maintain robustness, Ensure that no value falls outside the range [-1, 1]
   xhat(zkInd) = min(1.05,max(-0.05,xhat(zkInd)));% Help maintain robustness, Ensure that no value falls outside the range [-0.05, 1.05]
   
   % Step 6: Error covariance measurement update
