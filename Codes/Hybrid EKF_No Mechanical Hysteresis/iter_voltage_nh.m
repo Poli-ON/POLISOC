@@ -20,19 +20,24 @@ function [zk,zkbnd,yhat,Data] = iter_voltage_nh(vk,ik,Tk,deltat,Data)
   % Load the cell model parameters
   param=Data.param;
   cyc = param.cyc;
-  Tk=1;
   Q  = param.Q;
   Ge  = param.Ge;
   Me  = param.Me;
   M0 = param.M0;
-  R1 = param.R1;
-  C1 = param.C1;
+  if iscell(param.R1)
+      R0 = param.R0{cyc};
+      R1 = param.R1{cyc};
+      C1 = param.C1{cyc};
+  else
+      R0 = param.R0;
+      R1 = param.R1;
+      C1 = param.C1;
+  end
   % R2 = param.R2;
   % C2 = param.C2;
   RC1= exp(-deltat./abs(R1*C1))';
   % RC2= exp(-deltat./abs(R2*C2))';
   RC = [RC1];
-  R0 = param.R0;
   eta = 1;
   if ik<0, ik=ik*eta; end % Multiply by Coulomb efficiency when discharge (ik>0)
   
@@ -43,7 +48,7 @@ function [zk,zkbnd,yhat,Data] = iter_voltage_nh(vk,ik,Tk,deltat,Data)
   SigmaW = Data.SigmaW;
   xhat = Data.xhat;
   irInd = Data.irInd;
-  hkInd = Data.hkInd;
+  hekInd = Data.hekInd;
   zkInd = Data.zkInd;
   if abs(ik)>Q/100, Data.signIk = sign(ik); end % Update the current value if it exceeds C/100
 
@@ -54,28 +59,34 @@ function [zk,zkbnd,yhat,Data] = iter_voltage_nh(vk,ik,Tk,deltat,Data)
   Ahat(zkInd,zkInd) = 1; Bhat(zkInd) = -deltat/(3600*Q);
   Ahat(irInd,irInd) = diag(RC); Bhat(irInd) = 1-RC(:); % May have more RC branches, Save values R_jC_j in a vector
   Ah  = exp(-abs(I*Ge*deltat/(3600*Q)));  % hysteresis factor
-  Ahat(hkInd,hkInd) = Ah;
+  Ahat(hekInd,hekInd) = Ah;
   B = [Bhat, 0*Bhat]; % write B matrix of the states
-  Bhat(hkInd) = -abs(Ge*deltat/(3600*Q))*Ah*(1+sign(I)*xhat(hkInd));
-  B(hkInd,2) = Ah-1;
+  Bhat(hekInd) = -abs(Ge*deltat/(3600*Q))*Ah*(1+sign(I)*xhat(hekInd));
+  B(hekInd,2) = Ah-1;
   
   % Step 1: State estimate time update
   xhat = Ahat*xhat + B*[I; sign(I)]; 
   % help mantein robustness, 
-  xhat(hkInd) = min(1,max(-1,xhat(hkInd))); % Ensure that no value falls outside the range [-1,1]
+  xhat(hekInd) = min(1,max(-1,xhat(hekInd))); % Ensure that no value falls outside the range [-1,1]
   xhat(zkInd) = min(1.05,max(-0.05,xhat(zkInd)));% Ensure that no value falls outside the range [-0.05,1.05]
 
   % Step 2: Error covariance time update
   SigmaX = Ahat*SigmaX*Ahat' + Bhat*SigmaW*Bhat';
   
   % Step 3: Output estimate
+  if ~any(Me) % To speed up don't use interp1 if electrical hysteresis is not considered (Me= [0 ... 0]).
+      Mek=0;
+  else
+      Mek=interp1(param.SOC,Me,min(max(xhat(zkInd),0),1)); % Calculate amplitude of voltage hysteresis envelope at present soc, and assign 
+  % the boundary envelope magnitude in case soc is outside the range [0 1]
+  end
   yhat = OCVfromSOC(xhat(zkInd),param) + M0*signIk + ...
-         Me(1)*xhat(hkInd) - R1*xhat(irInd) - R0*ik;
+         Mek*xhat(hekInd) - R1*xhat(irInd) - R0*ik;
   
   % Step 4: Compute the estimator gain matrix
   Chat = zeros(1,nx);
   Chat(zkInd) = dOCVfromSOC(xhat(zkInd),param);
-  Chat(hkInd) = Me(1);%interp1(param.SOC,param.Me,xhat(zkInd));
+  Chat(hekInd) = Mek;
   Chat(irInd) = -R1;
   Dhat = 1;
   SigmaY = Chat*SigmaX*Chat' + Dhat*SigmaV*Dhat';
@@ -85,7 +96,7 @@ function [zk,zkbnd,yhat,Data] = iter_voltage_nh(vk,ik,Tk,deltat,Data)
   r = vk - yhat; % error between measured voltage and model
   if r^2 > 100*SigmaY, L(:)=0.0; end 
   xhat = xhat + L*r;
-  xhat(hkInd) = min(1,max(-1,xhat(hkInd))); % Help maintain robustness
+  xhat(hekInd) = min(1,max(-1,xhat(hekInd))); % Help maintain robustness
   xhat(zkInd) = min(1.05,max(-0.05,xhat(zkInd)));
   
   % Step 6: Error covariance measurement update
