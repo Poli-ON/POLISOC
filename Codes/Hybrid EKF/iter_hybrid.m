@@ -27,14 +27,20 @@ function [zk,zkbnd,yhat,Data] = iter_hybrid(dk,vk,ik,Tk,deltat,Data)
   Mm  = param.Mm;
   Me  = param.Me;
   M0 = param.M0;
-  R1 = param.R1;
-  C1 = param.C1;
+  if iscell(param.R1)
+      R0 = param.R0{cyc};
+      R1 = param.R1{cyc};
+      C1 = param.C1{cyc};
+  else
+      R0 = param.R0;
+      R1 = param.R1;
+      C1 = param.C1;
+  end
   % R2 = param.R2(Tk);
   % C2 = param.C2(Tk);
   RC1= exp(-deltat./abs(R1*C1))';
   % RC2= exp(-deltat./abs(R2*C2))';
   RC = [RC1];
-  R0 = param.R0(1);
   eta = 1;
   if ik<0, ik=ik*eta; end % Multiply by Coulomb efficiency when discharge (ik>0)
   
@@ -75,26 +81,18 @@ function [zk,zkbnd,yhat,Data] = iter_hybrid(dk,vk,ik,Tk,deltat,Data)
   SigmaX = Ahat*SigmaX*Ahat' + Bhat*SigmaW*Bhat';
   
   % Step 3: Output estimate
-  % Calculate amplitude of deformation hysteresis envelope at present soc, and assign 
-  % the boundary envelope magnitude in case soc is outside the range [0 1]
-  if xhat(zkInd)>0.99
-      Mmk=param.Mm(end);
-  elseif xhat(zkInd)<0.01
-      Mmk=param.Mm(1);
+  if ~any(Mm) % To speed up don't use interp1 if mechanical hysteresis is not considered (Mm= [0 ... 0]).
+      Mmk=0;
   else
-  Mmk=interp1(param.SOC,param.Mm,xhat(zkInd)); % Evaluate the magnitude of the deformation hysteresis envelope at the present SOC
-  end
-  
-  % Calculate amplitude of voltage hysteresis envelope at present soc, and assign 
+  Mmk=interp1(param.SOC,Mm,min(max(xhat(zkInd),0),1)); % Calculate amplitude of deformation hysteresis envelope at present soc, and assign 
   % the boundary envelope magnitude in case soc is outside the range [0 1]
-  if xhat(zkInd)>0.99
-      Mek=param.Me(end);
-  elseif xhat(zkInd)<0.01
-      Mek=param.Me(1);
-  else
-  Mek=interp1(param.SOC,param.Me,xhat(zkInd)); % Evaluate the magnitude of the deformation hysteresis envelope at the present SOC
   end
-
+  if ~any(Me) % To speed up don't use interp1 if electrical hysteresis is not considered (Me= [0 ... 0]).
+      Mek=0;
+  else
+      Mek=interp1(param.SOC,Me,min(max(xhat(zkInd),0),1)); % Calculate amplitude of voltage hysteresis envelope at present soc, and assign 
+  % the boundary envelope magnitude in case soc is outside the range [0 1]
+  end
   nout = 2;
   yhat = zeros(nout,1);
   yhat(1) = DTHKfromSOC(xhat(zkInd),param,cyc) + Mmk*xhat(hmkInd);
@@ -118,7 +116,8 @@ function [zk,zkbnd,yhat,Data] = iter_hybrid(dk,vk,ik,Tk,deltat,Data)
   r(2) = vk - yhat(2); % residual.  % error between measured voltage and model
   if r.^2 > 100*SigmaY, L(:)=0.0; end 
   xhat = xhat + L*r; 
-  xhat(hekInd) = min(1,max(-1,xhat(hekInd))); % Help maintain robustness
+  xhat(hekInd) = min(1,max(-1,xhat(hekInd))); % Help maintain robustness, Ensure that no value falls outside the range [-1, 1]
+  xhat(hmkInd) = min(1,max(-1,xhat(hmkInd))); % Help maintain robustness, Ensure that no value falls outside the range [-1, 1]
   xhat(zkInd) = min(1.05,max(-0.05,xhat(zkInd)));
   
   % Step 6: Error covariance measurement update
