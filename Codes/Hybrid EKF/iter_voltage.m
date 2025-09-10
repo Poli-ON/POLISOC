@@ -24,14 +24,20 @@ function [zk,zkbnd,yhat,Data] = iter_voltage(vk,ik,Tk,deltat,Data)
   Ge  = param.Ge;
   Me  = param.Me;
   M0 = param.M0;
-  R1 = param.R1;
-  C1 = param.C1;
+  if iscell(param.R1)
+      R0 = param.R0{cyc};
+      R1 = param.R1{cyc};
+      C1 = param.C1{cyc};
+  else
+      R0 = param.R0;
+      R1 = param.R1;
+      C1 = param.C1;
+  end
   % R2 = param.R2;
   % C2 = param.C2;
   RC1= exp(-deltat./abs(R1*C1))';
   % RC2= exp(-deltat./abs(R2*C2))';
   RC = [RC1];
-  R0 = param.R0;
   eta = 1;
   if ik<0, ik=ik*eta; end % Multiply by Coulomb efficiency when discharge (ik>0)
   
@@ -68,7 +74,12 @@ function [zk,zkbnd,yhat,Data] = iter_voltage(vk,ik,Tk,deltat,Data)
   SigmaX = Ahat*SigmaX*Ahat' + Bhat*SigmaW*Bhat';
   
   % Step 3: Output estimate
-  Mek=interp1(param.SOC,param.Me,xhat(zkInd)); % Evaluate the magnitude of the voltage hysteresis envelope at the present SOC
+  if ~any(Me) % To speed up don't use interp1 if electrical hysteresis is not considered (Me= [0 ... 0]).
+      Mek=0;
+  else
+      Mek=interp1(param.SOC,Me,min(max(xhat(zkInd),0),1)); % Calculate amplitude of voltage hysteresis envelope at present soc, and assign 
+  % the boundary envelope magnitude in case soc is outside the range [0 1]
+  end
   yhat = OCVfromSOC(xhat(zkInd),param) + M0*signIk + ...
          Mek*xhat(hekInd) - R1*xhat(irInd) - R0*ik;
   
@@ -85,7 +96,7 @@ function [zk,zkbnd,yhat,Data] = iter_voltage(vk,ik,Tk,deltat,Data)
   r = vk - yhat; % error between measured voltage and model
   if r^2 > 100*SigmaY, L(:)=0.0; end 
   xhat = xhat + L*r;
-  xhat(hekInd) = min(1,max(-1,xhat(hekInd))); % Help maintain robustness
+  xhat(hekInd) = min(1,max(-1,xhat(hekInd))); % Help maintain robustness, Ensure that no value falls outside the range [-1, 1]
   xhat(zkInd) = min(1.05,max(-0.05,xhat(zkInd)));
   
   % Step 6: Error covariance measurement update
