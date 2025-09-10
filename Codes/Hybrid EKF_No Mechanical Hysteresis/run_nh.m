@@ -1,117 +1,164 @@
-% Job of the function:
-%    run EFK filter for SOC estimation with multiple observers
-%
-% Inputs:
-%   ObType: Type of observer to be used (1: Deformation, 2: Voltage, 3:
-%   Hybrid)
-%   param: Set of cell parameters
-%   Meas: Structure containing measurement data of the test to estimate SOC
-%   BatType: Type of battery (0: LCO, 1: LFP, 2: NMC)
-%
-% Output:
-%   sochat: SOC estimation
-%   socbound: 3-sigma estimation bounds
-%   OutModel: Model Output 
+clear variables
 
+%% Load battery type parameter database
 
-function [sochat,socbound,OutModel]=run_nh(ObType,param,Meas,BatType)
-
-%% Covariance values
-% Set the Covariance values
+BatType = 1;% 0 LCO, 1 LFP, 2 NMC, 3 NMC Michigan dataset
 switch BatType
     case 0 %LCO
-        switch ObType
-            case 1
-                SigmaX0 = diag(0.0025); % uncertainty of initial state (SOC)
-                SigmaV  = 1e-1; % Output equation: Uncertainty of deformation sensor
-                SigmaW  = 1e-1; % State equation: Uncertainty of current sensor
-            case 2
-                SigmaX0 = diag([0.001 1e-8 0.0025]); % uncertainty of initial state (current resistor, hysteresis, SOC)
-                SigmaV  = 1e-1; % Output equation: Uncertainty of voltage sensor
-                SigmaW  = 1e-1; % State equation: uncertainty of current sensor
-            case 3
-                SigmaX0 = diag([0.001 1e-8 0.0025]); % uncertainty of initial state
-                SigmaV  = diag([1e-1; 1e-1]); %  Output equation: Uncertainty of deformation and voltage sensor
-                SigmaW  = 1e-1; % State equation: Uncertainty of current sensor
-        end
+        t0=9.2;                  % Nominal battery thickness
+        load param_LCO.mat
+        param=param_LCO;
+        param.cyc=44;            % Set the param aging level 1: first RPT, 44: last RPT. Reference: 10.5281/zenodo.14914172
     case 1 %LFP
-        switch ObType
-            case 1
-                SigmaX0 = diag(0.0025); % uncertainty of initial state (SOC)
-                SigmaV  = 1e-1; % Output equation: Uncertainty of deformation sensor
-                SigmaW  = 1e-1; % State equation: Uncertainty of current sensor
-            case 2
-                SigmaX0 = diag([0.001 1e-8 0.0025]); % uncertainty of initial state (current resistor, hysteresis, SOC)
-                SigmaV  = 1e-1; % Output equation: Uncertainty of voltage sensor
-                SigmaW  = 1e-1; % State equation: uncertainty of current sensor
-            case 3
-                SigmaX0 = diag([0.001 1e-8 0.0025]); % uncertainty of initial state
-                SigmaV  = diag([1e-1; 1e-1]); %  Output equation: Uncertainty of deformation and voltage sensor
-                SigmaW  = 1e-1; % State equation: Uncertainty of current sensor
-        end
+        t0=27;                   % Nominal battery thickness
+        load param_LFP10.mat
+        param=param_LFP10;
+        param.cyc=1;
     case 2 %NMC
-        switch ObType
-            case 1
-                SigmaX0 = diag(0.0025); % uncertainty of initial state (SOC)
-                SigmaV  = 1e-1; % Output equation: Uncertainty of deformation sensor
-                SigmaW  = 1e-1; % State equation: Uncertainty of current sensor
-            case 2
-                SigmaX0 = diag([0.001 1e-8 0.0025]); % uncertainty of initial state (current resistor, hysteresis, SOC)
-                SigmaV  = 1e-1; % Output equation: Uncertainty of voltage sensor
-                SigmaW  = 1e-1; % State equation: uncertainty of current sensor
-            case 3
-                SigmaX0 = diag([0.001 1e-8 0.0025]); % uncertainty of initial state
-                SigmaV  = diag([1e-1; 1e-1]); %  Output equation: Uncertainty of deformation and voltage sensor
-                SigmaW  = 1e-1; % State equation: Uncertainty of current sensor
-        end
+        t0=14;                   % Nominal battery thickness
+        load param_NMC2.mat
+        param=param_NMC2;
+        param.cyc=1;
+    case 3 % NMC Michigan dataset
+        t0=4;                   % Nominal battery thickness
+        load param_NMC19.mat
+        param=param_NMC19;
+        param.cyc=1;            % 6 aging steps: 1: fresh, 2: 106 cycles, 3: 213 c. 4: 319 c. 5: 424 c.  6: 449c. (EOL)
 end
 
-% Time variables
+
+
+%% Load test data
+
+switch BatType
+    case 0 %LCO
+        load("Meas_LCO_DST2.mat")
+    case 1 % LFP
+        load("Meas_LFP10_DST1.mat")
+        % load("Meas_LFP10_DriveCycle_1.mat")
+    case 2 % NMC
+        % load("Meas_NMC2_DST1.mat")
+        load("Meas_NMC2_DriveCycle_1.mat")
+    case 3 % NMC Michigan dataset
+        load("Meas_NMC19.mat")
+        Meas=Meas{6};
+end
+
+% Add a random error and a bias to the current
+Meas.Current = Meas.TrueCurrent + Meas.TrueCurrent.*(rand(length(Meas.Current),1)-0.5)./10 + sign(Meas.Current).*max(Meas.Current)./50;
+
+% Set deformation at maximum at the beginning since starting at SOC 100%
+Meas.Deformation=Meas.Deformation-Meas.Deformation(1)+max((param.DthkC{param.cyc}+flip(param.DthkD{param.cyc}))./2);
+
+% Compensate temperature on deformation measurements
+Meas.Deformation = Meas.Deformation - t0.*param.alfa*(Meas.Temperature-Meas.Temperature(1));
+
 n = length(Meas.Time);
 deltat = Meas.Time(3)-Meas.Time(2);           %Sampling interval [s]
 
-% Allocate variables for results
-sochat = zeros(n,1);
-if ObType == 3
-    OutModel = zeros(n,2);
-else
-    OutModel = zeros(n,1);
+
+%% Compute the reference "TRUE" SOC with Coulomb counting for comparison
+
+Ah = zeros(n,1);
+Ah_current_sensor = zeros(n,1);
+for i=2:n
+    Ah(i) = Ah(i-1)+Meas.TrueCurrent(i).*(deltat/3600);
+    Ah_current_sensor(i) = Ah_current_sensor(i-1)+Meas.Current(i).*(deltat/3600);
 end
-socbound = zeros(n,1);
 
-% Fixed temperature
-T=20;
 
-% Create the Data structure and initialize variables using first
-% voltage or deformation measurement
-Data = init_nh(Meas.Voltage(1),Meas.Deformation(1),T,SigmaX0,SigmaV,SigmaW,param,ObType);
-
-% Time loop of the filter, updated each time step "k" with a new measurement
-% value.
-hwait = waitbar(0,'Computing...'); 
-for k = 1:length(Meas.Time)
-  dk = Meas.Deformation(k);   % "measure" deformation
-  vk = Meas.Voltage(k);       % "measure" voltage
-  ik = Meas.Current(k);       % "measure" current
-  Tk = T;                     % "measure" temperature
-  
- % Compute state variables according to the algorith mode:
-  switch ObType
-      case 1
-          [sochat(k),socbound(k),OutModel(k),Data] = iter_deformation_nh(dk,ik,Tk,deltat,Data);
-      case 2
-          [sochat(k),socbound(k),OutModel(k),Data] = iter_voltage_nh(vk,ik,Tk,deltat,Data);
-      case 3
-          [sochat(k),socbound(k),OutModel(k,:),Data] = iter_hybrid_nh(dk,vk,ik,Tk,deltat,Data);
-  end
-
- % update waitbar periodically (slow procedure)
-  if mod(k,1000)==0
-    waitbar(k/length(Meas.Current),hwait);
-  end
+switch BatType
+    case 0 %LCO
+        nominalCap                      = Ah(end); 
+    case 1 %LFP
+        nominalCap                      = Ah(end); 
+    case 2 %NMC
+        nominalCap                      = Ah(end); 
+    case 3 %NMC Michigan dataset
+        nominalCap                      = 2*Ah(end); 
 end
-close(hwait);
+SOC0_cc0                        = 1;
+soc                             = (SOC0_cc0 * nominalCap - Ah)./nominalCap;                  % True soc computed with coulomb counting
+soc_current                     = (SOC0_cc0 * nominalCap - Ah_current_sensor)./nominalCap;   % Fictious SOC considering fictitious sensor errors
+T                               = 20;                                                       % Fixed temperarure
 
+%% RUN
 
+% The first field of the function "run" controls how to run the algorithm:
+% 1: Run the algorith in Deformation mode
+% 2: Run the algorith in Voltage mode
+% 3: Run the algorith in Hybrid mode
 
+% In this case, run the algorithm in all the three modes
+for i=1:3
+    tic
+    [sochat{i},socbound{i},OutModel{i}]=run_nh(i,param,Meas,BatType);
+    err{i}=sqrt(mean((100*(soc-sochat{i})).^2));
+    runtime(i)=toc;
 end
+
+%% PLOT
+color=[0.00,0.45,0.74; 0.85,0.33,0.10; 0.93,0.69,0.13];
+
+% Plot SOC estimation
+figure();
+p1=subplot(1,1,1);
+plot(Meas.Time/60,100*soc,'k','linewidth',1); hold on;
+for i=1:3
+    plot(Meas.Time/60,100*sochat{i},'linewidth',1,'Color',color(i,:))
+    hold on
+end
+% Possibly plot also the fictious coulomb counting SOC, affected by current
+% sensor synthetic errors.
+% plot(Meas.Time/60,100*soc_current,'--k'); hold on;
+set(p1,'TickLabelInterpreter', 'tex','FontSize',17,'FontName','Times New Roman')
+xlabel('Time [min]'); ylabel('SOC [%]');
+legend('Reference',['Deformation RMSE = ' num2str(err{1},'%0.2f') '%'],['Voltage RMSE = ' num2str(err{2},'%0.2f') '%'],['Hybrid RMSE = ' num2str(err{3},'%0.2f') '%']); ylim([0 120]); grid on
+ylim([0 100])
+
+
+
+% Plot  model
+figure();
+p1=subplot(2,1,1);
+plot(Meas.Time/60,OutModel{1},'linewidth',0.75); hold on; plot(Meas.Time/60,OutModel{3}(:,1),'linewidth',0.75); hold on; plot(Meas.Time/60,Meas.Deformation,'k','linewidth',0.75);
+set(p1,'TickLabelInterpreter', 'tex','FontSize',17,'FontName','Times New Roman')
+xlabel('Time [min]'); 
+ylabel('Deformation [mm]')
+grid on
+
+p2=subplot(2,1,2);
+plot(Meas.Time/60,OutModel{2},'linewidth',0.75,'Color',color(1,:)); hold on; plot(Meas.Time/60,OutModel{3}(:,2),'linewidth',0.75,'Color',color(2,:)); hold on; plot(Meas.Time/60,Meas.Voltage,'k','linewidth',0.75);
+legend('Model - Single output','Model - Double output','Measurements','Location','south')
+set(p2,'TickLabelInterpreter', 'tex','FontSize',17,'FontName','Times New Roman')
+xlabel('Time [min]');
+ylabel('Voltage [V]')
+ylim([2.75 4.2])
+% ylim([2.4 3.5])
+grid on
+
+
+% Plot estimation error and bounds
+figure(); 
+p1=subplot(1,1,1);
+for i=1:3
+    plot(Meas.Time/60,100*(soc-sochat{i}),'Color',color(i,:),'linewidth',1); hold on
+    h = plot([Meas.Time/60; NaN; Meas.Time/60],[100*socbound{i}; NaN; -100*socbound{i}],'--','Color',color(i,:),'linewidth',1);
+end
+xlabel('Time [min]'); ylabel('SOC error [%]'); ylim([-5 5]); 
+set(p1,'TickLabelInterpreter', 'tex','FontSize',17,'FontName','Times New Roman')
+%legend('Error','Bounds','location','northwest'); 
+yticks([-5 -2.5 0 2.5 5])
+grid on
+
+
+% Print info in the command window
+
+% Display RMS estimation error to command window
+% fprintf('RMS SOC estimation error = %g%%\n',err);
+
+% Display bounds errors to command window
+% ind = find(abs(soc-sochat)>socbound);
+% fprintf('Percent of time error outside bounds = %g%%\n',...
+%         length(ind)/length(soc)*100);
+
